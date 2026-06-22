@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>ES Theme Studio v3.2 (Deep Compiler)</title>
+    <title>ES Theme Studio v3.4</title>
     <style>
         :root { --bg: #1a0b2e; --panel: #111; --border: #FF00FF; --text: #00FFFF; }
         body { margin: 0; padding: 0; background: var(--bg); color: #fff; font-family: 'Segoe UI', Tahoma, sans-serif; display: flex; height: 100vh; overflow: hidden; }
         
         #sidebar { width: 450px; background: #0a0414; border-right: 2px solid var(--border); display: flex; flex-direction: column; z-index: 50; }
-        #main { flex-grow: 1; display: flex; flex-direction: column; }
+        #main { flex-grow: 1; display: flex; flex-direction: column; position: relative; }
         
         .header { padding: 15px; border-bottom: 1px solid #333; }
         .header h2 { margin: 0; color: #FF00FF; text-transform: uppercase; font-size: 20px; }
@@ -48,13 +48,22 @@
         .es-content-media { width: 100%; height: 100%; pointer-events: none; }
         .es-content-txt { width: 100%; height: 100%; line-height: 1.2; word-wrap: break-word; pointer-events: none; }
         
-        .highlight-card { background: #002233 !important; border-left-color: #00FFFF !important; box-shadow: 0 0 20px rgba(0, 255, 255, 0.5) !important; transform: scale(1.02); transition: all 0.3s ease; z-index: 10; position: relative; }
+        @keyframes flash-card {
+            0% { background-color: #004466; border-left-color: #00FFFF; transform: scale(1.02); box-shadow: 0 0 20px rgba(0,255,255,0.5); z-index: 10; }
+            100% { background-color: var(--panel); border-left-color: var(--border); transform: scale(1); box-shadow: 0 4px 6px rgba(0,0,0,0.3); z-index: 1; }
+        }
+        .highlight-flash { animation: flash-card 1.5s ease-out; position: relative; }
+
+        #toast { visibility: hidden; min-width: 250px; background-color: #32CD32; color: #000; text-align: center; border-radius: 4px; padding: 12px; position: absolute; z-index: 10000; left: 50%; bottom: 30px; transform: translateX(-50%); font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        #toast.show { visibility: visible; animation: fadein 0.5s, fadeout 0.5s 2.5s forwards; }
+        @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
+        @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0; visibility: hidden;} }
     </style>
 </head>
 <body>
 
 <div id="sidebar">
-    <div class="header"><h2>ES Theme Studio v3.2</h2></div>
+    <div class="header"><h2>ES Theme Studio v3.4</h2></div>
     <div class="actions" style="border-bottom: 1px solid #333; border-top: none;">
         
         <div id="drop-zone" onclick="document.getElementById('file-input').click()">
@@ -88,6 +97,7 @@
     <div id="monitor-wrapper">
         <div id="monitor" class="debug"></div>
     </div>
+    <div id="toast">Import Successful!</div>
 </div>
 
 <script>
@@ -98,18 +108,17 @@
         textlist: ['pos', 'size', 'origin', 'zIndex', 'selectorColor', 'selectedColor', 'primaryColor', 'secondaryColor', 'fontPath', 'fontSize', 'alignment', 'horizontalMargin', 'forceUppercase', 'lineSpacing'],
         datetime: ['pos', 'size', 'origin', 'zIndex', 'color', 'fontPath', 'fontSize', 'alignment', 'format', 'displayRelative'],
         rating: ['pos', 'size', 'origin', 'zIndex', 'filledPath', 'unfilledPath', 'color'],
-        imagegrid: ['pos', 'size', 'origin', 'zIndex', 'margin', 'autoLayout', 'imageSource', 'scrollDirection', 'centerSelection'],
+        imagegrid: ['pos', 'size', 'origin', 'zIndex', 'margin', 'autoLayout', 'imageSource', 'scrollDirection', 'centerSelection', 'scrollLoop'],
         gridtile: ['padding', 'backgroundColor', 'backgroundImage', 'imageColor', 'backgroundCenterColor', 'backgroundEdgeColor'],
         helpsystem: ['pos', 'origin', 'textColor', 'iconColor', 'fontPath', 'fontSize']
     };
 
     const ARRAY_PROPS = ['pos', 'size', 'maxSize', 'origin'];
     
-    // Properties eligible for automatic cross-view cluster compression
     const GROUPABLE_PROPS = [
         'color', 'fontSize', 'alignment', 'fontPath', 'lineSpacing', 'forceUppercase', 
         'backgroundColor', 'textColor', 'iconColor', 'primaryColor', 'secondaryColor', 
-        'selectorColor', 'selectedColor', 'horizontalMargin', 'format', 'displayRelative'
+        'selectorColor', 'selectedColor', 'horizontalMargin', 'format', 'displayRelative', 'scrollLoop', 'imageSource'
     ];
 
     const app = {
@@ -120,6 +129,7 @@
         fonts: {}, 
         images: {}, 
         autoFonts: {},
+        formatVersion: '4',
 
         createElement: function(tag, name, extra = false, visible = false) {
             const el = {
@@ -139,18 +149,20 @@
                 'text', 'backgroundColor', 'fontPath', 'fontSize', 'alignment', 'forceUppercase', 'lineSpacing', 
                 'selectorColor', 'selectedColor', 'primaryColor', 'secondaryColor', 'horizontalMargin', 
                 'format', 'displayRelative', 'filledPath', 'unfilledPath', 
-                'margin', 'autoLayout', 'imageSource', 'scrollDirection', 'centerSelection', 
+                'margin', 'autoLayout', 'imageSource', 'scrollDirection', 'centerSelection', 'scrollLoop',
                 'padding', 'backgroundImage', 'imageColor', 'backgroundCenterColor', 'backgroundEdgeColor', 
                 'textColor', 'iconColor'
             ];
             
-            scalarProps.forEach(p => {
-                el[p] = '';
-            });
-
+            scalarProps.forEach(p => { el[p] = ''; });
             el.zIndex = '10';
-            if (tag === 'text') {
-                el.text = `[${name}]`;
+            
+            if (tag === 'text') el.text = `[${name}]`;
+
+            if (tag === 'helpsystem') {
+                el.pos = ['0.012', '0.9515'];
+                el.textColor = '777777FF';
+                el.iconColor = '777777FF';
             }
 
             return el;
@@ -158,11 +170,10 @@
 
         init: function() {
             const baseElements = [
+                { tag: 'image', name: 'background', extra: true },
+                { tag: 'image', name: 'logo' },
                 { tag: 'helpsystem', name: 'help' },
                 { tag: 'textlist', name: 'gamelist' },
-                { tag: 'imagegrid', name: 'gamegrid' },
-                { tag: 'gridtile', name: 'default' },
-                { tag: 'gridtile', name: 'selected' },
                 { tag: 'image', name: 'md_image' },
                 { tag: 'video', name: 'md_video' },
                 { tag: 'image', name: 'md_marquee' },
@@ -185,17 +196,19 @@
             
             this.views.forEach(v => {
                 this.data[v] = baseElements.map(base => {
-                    return this.createElement(base.tag, base.name, false, false);
+                    return this.createElement(base.tag, base.name, base.extra || false, false);
                 });
             });
+
+            this.data['grid'].push(this.createElement('imagegrid', 'gamegrid', false, false));
+            this.data['grid'].push(this.createElement('gridtile', 'default', false, false));
+            this.data['grid'].push(this.createElement('gridtile', 'selected', false, false));
 
             this.views.forEach(v => {
                 const tab = document.createElement('div');
                 tab.className = `tab ${v === this.currentView ? 'active' : ''}`;
                 tab.innerText = v;
-                tab.onclick = () => {
-                    this.switchView(v);
-                };
+                tab.onclick = () => { this.switchView(v); };
                 document.getElementById('tabs-container').appendChild(tab);
             });
             
@@ -203,29 +216,24 @@
             this.renderControls();
         },
 
+        showToast: function(message) {
+            const toast = document.getElementById("toast");
+            toast.innerText = message;
+            toast.className = "show";
+            setTimeout(function() { toast.className = toast.className.replace("show", ""); }, 2800);
+        },
+
         setupDragAndDrop: function() {
             const dz = document.getElementById('drop-zone');
-            
-            dz.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                dz.style.backgroundColor = 'rgba(0,255,255,0.2)';
-            });
-            
-            dz.addEventListener('dragleave', (e) => {
-                e.preventDefault();
-                dz.style.backgroundColor = 'transparent';
-            });
-            
+            dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.style.backgroundColor = 'rgba(0,255,255,0.2)'; });
+            dz.addEventListener('dragleave', (e) => { e.preventDefault(); dz.style.backgroundColor = 'transparent'; });
             dz.addEventListener('drop', (e) => {
                 e.preventDefault();
                 dz.style.backgroundColor = 'transparent';
-                
                 if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
                     const file = e.dataTransfer.files[0];
                     const reader = new FileReader();
-                    reader.onload = (ev) => {
-                        this.processRawXML(ev.target.result);
-                    };
+                    reader.onload = (ev) => { this.processRawXML(ev.target.result); };
                     reader.readAsText(file);
                 }
             });
@@ -233,13 +241,9 @@
 
         handleFileSelect: function(event) {
             const file = event.target.files[0];
-            if (!file) {
-                return;
-            }
+            if (!file) return;
             const reader = new FileReader();
-            reader.onload = (e) => {
-                this.processRawXML(e.target.result);
-            };
+            reader.onload = (e) => { this.processRawXML(e.target.result); };
             reader.readAsText(file);
             event.target.value = ''; 
         },
@@ -247,15 +251,10 @@
         switchView: function(view) {
             this.currentView = view;
             const tabs = document.querySelectorAll('.tab');
-            
             tabs.forEach(t => {
-                if (t.innerText === view) {
-                    t.classList.add('active');
-                } else {
-                    t.classList.remove('active');
-                }
+                if (t.innerText === view) t.classList.add('active');
+                else t.classList.remove('active');
             });
-            
             this.renderControls();
         },
 
@@ -269,32 +268,20 @@
         },
 
         deleteElement: function(id) {
-            this.data[this.currentView] = this.data[this.currentView].filter(el => {
-                return el.id !== id;
-            });
+            this.data[this.currentView] = this.data[this.currentView].filter(el => el.id !== id);
             this.renderControls();
         },
 
         updateElement: function(id, key, value, index = null) {
-            const el = this.data[this.currentView].find(e => {
-                return e.id === id;
-            });
-            
-            if (index !== null) { 
-                el[key][index] = value; 
-            } else { 
-                el[key] = value; 
-            }
-            
+            const el = this.data[this.currentView].find(e => e.id === id);
+            if (index !== null) el[key][index] = value; 
+            else el[key] = value; 
             this.renderMonitor(); 
         },
 
         handleAssetUpload: function(event, id, type) {
             const file = event.target.files[0];
-            if (!file) {
-                return;
-            }
-            
+            if (!file) return;
             const url = URL.createObjectURL(file);
             
             if (type === 'image') {
@@ -302,17 +289,11 @@
                 this.renderControls(); 
                 this.renderMonitor();
             } else if (type === 'font') {
-                const el = this.data[this.currentView].find(e => {
-                    return e.id === id;
-                });
-                
-                if (el.fontPath === '') {
-                    el.fontPath = `./_assets/fonts/${file.name}`;
-                }
+                const el = this.data[this.currentView].find(e => e.id === id);
+                if (el.fontPath === '') el.fontPath = `./_assets/fonts/${file.name}`;
                 
                 const pathKey = el.fontPath.toLowerCase();
                 const safeFontName = `font_${pathKey.replace(/[^a-zA-Z0-9]/g, '')}`;
-                
                 const font = new FontFace(safeFontName, `url(${url})`);
                 
                 font.load().then(loadedFont => {
@@ -320,9 +301,7 @@
                     this.fonts[pathKey] = { name: safeFontName, fileName: file.name };
                     this.renderControls(); 
                     this.renderMonitor(); 
-                }).catch(err => {
-                    alert("Error loading font file.");
-                });
+                }).catch(err => { alert("Error loading font file."); });
             }
         },
 
@@ -330,28 +309,18 @@
             const card = document.getElementById(`ctrl-${id}`);
             if (card) {
                 card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                
-                const highlighted = document.querySelectorAll('.highlight-card');
-                highlighted.forEach(c => {
-                    c.classList.remove('highlight-card');
-                });
-                
-                card.classList.add('highlight-card');
-                
-                setTimeout(() => {
-                    card.classList.remove('highlight-card');
-                }, 1500);
+                card.classList.remove('highlight-flash');
+                void card.offsetWidth; 
+                card.classList.add('highlight-flash');
             }
         },
 
         renderControls: function() {
             const container = document.getElementById('controls-container');
-            container.innerHTML = '';
+            let htmlChunks = [];
             
             const sortedElements = [...this.data[this.currentView]].sort((a, b) => {
-                if (a.visible === b.visible) {
-                    return parseInt(a.zIndex || 0) - parseInt(b.zIndex || 0);
-                }
+                if (a.visible === b.visible) return parseInt(a.zIndex || 0) - parseInt(b.zIndex || 0);
                 return a.visible ? -1 : 1;
             });
             
@@ -403,9 +372,8 @@
                     if (schema.includes('fontPath')) {
                         const lookupPath = el.fontPath ? el.fontPath.toLowerCase() : '';
                         let fontBadge = '';
-                        if (lookupPath && this.fonts[lookupPath]) {
-                            fontBadge = `<span style="color:#32CD32; float:right; font-weight:bold;">✓ Linked (${this.fonts[lookupPath].fileName})</span>`;
-                        }
+                        if (lookupPath && this.fonts[lookupPath]) fontBadge = `<span style="color:#32CD32; float:right; font-weight:bold;">✓ Linked (${this.fonts[lookupPath].fileName})</span>`;
+                        else if (el.fontPath) fontBadge = `<span style="color:#0088FF; float:right; font-weight:bold;">↳ Local Path</span>`;
                         
                         visibleControls += `
                             <div class="input-group full-width">
@@ -456,18 +424,10 @@
                                     </select>
                                 </div>`;
                         }
-                        if (schema.includes('lineSpacing')) {
-                            visibleControls += `<div class="input-group"><label>lineSpacing</label><input type="number" step="0.1" value="${el.lineSpacing}" oninput="app.updateElement('${el.id}', 'lineSpacing', this.value)"></div>`;
-                        }
-                        if (schema.includes('horizontalMargin')) {
-                            visibleControls += `<div class="input-group"><label>horizontalMargin</label><input type="number" step="0.01" value="${el.horizontalMargin}" oninput="app.updateElement('${el.id}', 'horizontalMargin', this.value)"></div>`;
-                        }
-                        if (schema.includes('text')) {
-                            visibleControls += `<div class="input-group full-width"><label>Dummy Text Preview</label><input type="text" value="${el.text}" oninput="app.updateElement('${el.id}', 'text', this.value)"></div>`;
-                        }
-                        if (schema.includes('format')) {
-                            visibleControls += `<div class="input-group full-width"><label>format (e.g. %m/%d/%Y)</label><input type="text" value="${el.format}" oninput="app.updateElement('${el.id}', 'format', this.value)"></div>`;
-                        }
+                        if (schema.includes('lineSpacing')) visibleControls += `<div class="input-group"><label>lineSpacing</label><input type="number" step="0.1" value="${el.lineSpacing}" oninput="app.updateElement('${el.id}', 'lineSpacing', this.value)"></div>`;
+                        if (schema.includes('horizontalMargin')) visibleControls += `<div class="input-group"><label>horizontalMargin</label><input type="number" step="0.01" value="${el.horizontalMargin}" oninput="app.updateElement('${el.id}', 'horizontalMargin', this.value)"></div>`;
+                        if (schema.includes('text')) visibleControls += `<div class="input-group full-width"><label>Dummy Text Preview</label><input type="text" value="${el.text}" oninput="app.updateElement('${el.id}', 'text', this.value)"></div>`;
+                        if (schema.includes('format')) visibleControls += `<div class="input-group full-width"><label>format (e.g. %m/%d/%Y)</label><input type="text" value="${el.format}" oninput="app.updateElement('${el.id}', 'format', this.value)"></div>`;
                         visibleControls += `</div>`;
                     }
 
@@ -475,9 +435,9 @@
                     pathProps.forEach(pProp => {
                         if (schema.includes(pProp)) {
                             let imgBadge = '';
-                            if (pProp === 'path' && this.images[el.id]) {
-                                imgBadge = `<span style="color:#32CD32; float:right; font-weight:bold;">✓ Loaded</span>`;
-                            }
+                            if (pProp === 'path' && this.images[el.id]) imgBadge = `<span style="color:#32CD32; float:right; font-weight:bold;">✓ Loaded</span>`;
+                            else if (pProp === 'path' && el.path) imgBadge = `<span style="color:#0088FF; float:right; font-weight:bold;">↳ Local Path</span>`;
+
                             visibleControls += `
                                 <div class="input-group full-width">
                                     <label>${pProp} (XML Path)</label>
@@ -518,15 +478,29 @@
                                     </select>
                                 </div>`;
                         }
-                        if (schema.includes('delay')) {
-                            visibleControls += `<div class="input-group"><label>delay (seconds)</label><input type="number" step="0.1" value="${el.delay}" oninput="app.updateElement('${el.id}', 'delay', this.value)"></div>`;
-                        }
+                        if (schema.includes('delay')) visibleControls += `<div class="input-group"><label>delay (seconds)</label><input type="number" step="0.1" value="${el.delay}" oninput="app.updateElement('${el.id}', 'delay', this.value)"></div>`;
                         visibleControls += `</div>`;
                     }
 
                     if (el.tag === 'imagegrid') {
                         visibleControls += `
                             <div class="grid-2 full-width">
+                                <div class="input-group">
+                                    <label>imageSource</label>
+                                    <select onchange="app.updateElement('${el.id}', 'imageSource', this.value)">
+                                        <option value="" ${!el.imageSource ? 'selected' : ''}>[Default]</option>
+                                        <option value="image" ${el.imageSource === 'image' ? 'selected' : ''}>Image</option>
+                                        <option value="thumbnail" ${el.imageSource === 'thumbnail' ? 'selected' : ''}>Thumbnail</option>
+                                        <option value="marquee" ${el.imageSource === 'marquee' ? 'selected' : ''}>Marquee</option>
+                                    </select>
+                                </div>
+                                <div class="input-group">
+                                    <label>scrollLoop</label>
+                                    <select onchange="app.updateElement('${el.id}', 'scrollLoop', this.value)">
+                                        <option value="false" ${el.scrollLoop === 'false' || !el.scrollLoop ? 'selected' : ''}>False</option>
+                                        <option value="true" ${el.scrollLoop === 'true' ? 'selected' : ''}>True</option>
+                                    </select>
+                                </div>
                                 <div class="input-group">
                                     <label>margin (e.g. 0.01 0.02)</label>
                                     <input type="text" value="${el.margin}" oninput="app.updateElement('${el.id}', 'margin', this.value)">
@@ -554,30 +528,25 @@
                     }
                 }
 
-                let toggleBtn = '';
-                if (el.visible) {
-                    toggleBtn = `<button class="btn-sm" onclick="app.updateElement('${el.id}', 'visible', false); app.renderControls();">Hide</button>`;
-                } else {
-                    toggleBtn = `<button class="btn-sm show" onclick="app.updateElement('${el.id}', 'visible', true); app.renderControls();">Add to View</button>`;
-                }
+                let toggleBtn = el.visible 
+                    ? `<button class="btn-sm" onclick="app.updateElement('${el.id}', 'visible', false); app.renderControls();">Hide</button>`
+                    : `<button class="btn-sm show" onclick="app.updateElement('${el.id}', 'visible', true); app.renderControls();">Add to View</button>`;
 
-                let deleteBtn = '';
-                if (el.extra) {
-                    deleteBtn = `<button class="btn-sm delete" onclick="app.deleteElement('${el.id}')">Del</button>`;
-                }
+                let deleteBtn = el.extra 
+                    ? `<button class="btn-sm delete" onclick="app.deleteElement('${el.id}')">Del</button>`
+                    : '';
 
-                const cardHTML = `
+                htmlChunks.push(`
                     <div class="element-card" style="border-left-color: ${el.extra ? '#00FFFF' : '#FF00FF'}; opacity: ${el.visible ? '1' : '0.4'};" id="ctrl-${el.id}">
                         <div class="card-header">
                             <h3>${el.name} <span style="color:#666; font-size:10px;">&lt;${el.tag}&gt;</span></h3>
                             <div>${toggleBtn} ${deleteBtn}</div>
                         </div>
                         ${visibleControls}
-                    </div>`;
-                    
-                container.innerHTML += cardHTML;
+                    </div>`);
             });
             
+            container.innerHTML = htmlChunks.join('');
             this.renderMonitor();
         },
 
@@ -586,16 +555,10 @@
             let out = rawColor;
             if (out.includes('$')) {
                 const varKey = out.replace(/[{}$]/g, '');
-                if (this.variables[varKey]) {
-                    out = this.variables[varKey];
-                } else {
-                    out = 'FFFFFFFF';
-                }
+                out = this.variables[varKey] || 'FFFFFFFF';
             }
             let cssColor = `#${out.substring(0, 6)}`;
-            if (out.length >= 8) {
-                cssColor += out.substring(6, 8);
-            }
+            if (out.length >= 8) cssColor += out.substring(6, 8);
             return cssColor;
         },
 
@@ -604,51 +567,37 @@
             monitor.innerHTML = '';
             
             this.data[this.currentView].forEach(el => {
-                if (!el.visible || el.tag === 'gridtile') {
-                    return; 
-                }
+                if (!el.visible || el.tag === 'gridtile') return; 
 
                 const cont = document.createElement('div');
                 cont.className = 'es-container debug';
                 
-                const sw = parseFloat(el.size[0]);
-                const sh = parseFloat(el.size[1]);
-                const mw = parseFloat(el.maxSize[0]);
-                const mh = parseFloat(el.maxSize[1]);
+                const sw = parseFloat(el.size ? el.size[0] : 0);
+                const sh = parseFloat(el.size ? el.size[1] : 0);
+                const mw = parseFloat(el.maxSize ? el.maxSize[0] : 0);
+                const mh = parseFloat(el.maxSize ? el.maxSize[1] : 0);
                 
                 let w = mw > 0 ? mw : (sw > 0 ? sw : 0);
                 let h = mh > 0 ? mh : (sh > 0 ? sh : 0);
                 
-                if (el.tag === 'helpsystem') {
-                    cont.style.bottom = '0';
-                    cont.style.left = '0';
-                    cont.style.width = '100%';
-                    cont.style.height = '5%';
-                    cont.style.borderTop = '1px dashed rgba(255,255,255,0.2)';
-                } else {
-                    cont.style.left = (parseFloat(el.pos[0]) * 100) + '%';
-                    cont.style.top = (parseFloat(el.pos[1]) * 100) + '%';
+                cont.style.left = (parseFloat(el.pos[0]) * 100) + '%';
+                cont.style.top = (parseFloat(el.pos[1]) * 100) + '%';
+                
+                if (el.tag !== 'helpsystem') {
                     if (w > 0) cont.style.width = (w * 100) + '%';
                     if (h > 0) cont.style.height = (h * 100) + '%';
                     cont.style.transform = `translate(-${parseFloat(el.origin[0]) * 100}%, -${parseFloat(el.origin[1]) * 100}%)`;
                 }
 
                 cont.style.zIndex = el.zIndex;
-
-                cont.onclick = (e) => { 
-                    e.stopPropagation(); 
-                    this.scrollToControl(el.id); 
-                };
+                cont.onclick = (e) => { e.stopPropagation(); this.scrollToControl(el.id); };
 
                 if (el.tag === 'imagegrid') {
                     cont.style.display = 'grid';
                     let cols = 5; let rows = 3;
                     if (el.autoLayout) {
                         const alParts = el.autoLayout.split(' ');
-                        if (alParts.length >= 2) {
-                            cols = parseInt(alParts[0]);
-                            rows = parseInt(alParts[1]);
-                        }
+                        if (alParts.length >= 2) { cols = parseInt(alParts[0]); rows = parseInt(alParts[1]); }
                     }
                     cont.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
                     cont.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
@@ -660,12 +609,11 @@
                         cont.style.gap = `${mY}% ${mX}%`;
                         cont.style.padding = `${mY}% ${mX}%`;
                     } else {
-                        cont.style.gap = '1%';
-                        cont.style.padding = '1%';
+                        cont.style.gap = '1%'; cont.style.padding = '1%';
                     }
                     
-                    const defTile = this.data[this.currentView].find(e => { return e.tag === 'gridtile' && e.name === 'default'; });
-                    const selTile = this.data[this.currentView].find(e => { return e.tag === 'gridtile' && e.name === 'selected'; });
+                    const defTile = this.data[this.currentView].find(e => e.tag === 'gridtile' && e.name === 'default');
+                    const selTile = this.data[this.currentView].find(e => e.tag === 'gridtile' && e.name === 'selected');
 
                     for (let i = 0; i < (cols * rows); i++) {
                         const tile = document.createElement('div');
@@ -681,9 +629,7 @@
                         if (tData) {
                             tile.style.backgroundColor = tData.backgroundColor ? this.parseVariableColor(tData.backgroundColor) : 'transparent';
                             if (tData.padding) tile.style.padding = `${parseFloat(tData.padding.split(' ')[0])}px`;
-                        } else {
-                            tile.style.backgroundColor = 'rgba(255,255,255,0.05)';
-                        }
+                        } else tile.style.backgroundColor = 'rgba(255,255,255,0.05)';
                         
                         const gameImg = document.createElement('div');
                         gameImg.style.width = '100%';
@@ -702,9 +648,7 @@
                 if (el.tag === 'textlist') {
                     cont.style.flexDirection = 'column';
                     cont.style.justifyContent = 'space-around';
-                    const lines = 10;
-                    for (let i = 0; i < lines; i++) {
-                        const isSelected = (i === 4);
+                    for (let i = 0; i < 10; i++) {
                         const row = document.createElement('div');
                         row.style.width = '100%';
                         row.innerText = `Game Title ${i + 1}`;
@@ -714,16 +658,12 @@
                         if (el.forceUppercase === 'true') row.style.textTransform = 'uppercase';
                         if (el.lineSpacing) row.style.lineHeight = el.lineSpacing;
                         
-                        if (isSelected) {
+                        if (i === 4) {
                             row.style.backgroundColor = el.selectorColor ? this.parseVariableColor(el.selectorColor) : 'rgba(255,255,255,0.2)';
                             row.style.color = el.selectedColor ? this.parseVariableColor(el.selectedColor) : '#FFF';
-                        } else {
-                            row.style.color = el.primaryColor ? this.parseVariableColor(el.primaryColor) : '#AAA';
-                        }
+                        } else row.style.color = el.primaryColor ? this.parseVariableColor(el.primaryColor) : '#AAA';
                         
-                        if (el.fontPath && this.fonts[el.fontPath.toLowerCase()]) {
-                            row.style.fontFamily = `'${this.fonts[el.fontPath.toLowerCase()].name}', monospace`;
-                        }
+                        if (el.fontPath && this.fonts[el.fontPath.toLowerCase()]) row.style.fontFamily = `'${this.fonts[el.fontPath.toLowerCase()].name}', monospace`;
                         cont.appendChild(row);
                     }
                     monitor.appendChild(cont);
@@ -740,6 +680,7 @@
                         star.style.height = '100%';
                         star.style.backgroundColor = el.color ? this.parseVariableColor(el.color) : 'yellow';
                         star.style.clipPath = 'polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)';
+                        star.style.opacity = i < 3 ? '1' : '0.3';
                         cont.appendChild(star);
                     }
                     monitor.appendChild(cont);
@@ -749,18 +690,15 @@
                 if (el.tag === 'helpsystem') {
                     cont.style.display = 'flex';
                     cont.style.alignItems = 'center';
-                    cont.style.justifyContent = 'flex-end';
+                    cont.style.justifyContent = 'flex-start';
                     cont.style.gap = '15px';
-                    cont.style.paddingRight = '20px';
                     
-                    const textColor = el.textColor ? this.parseVariableColor(el.textColor) : '#FFF';
-                    const iconColor = el.iconColor ? this.parseVariableColor(el.iconColor) : '#AAA';
+                    const textColor = el.textColor ? this.parseVariableColor(el.textColor) : '#777777';
+                    const iconColor = el.iconColor ? this.parseVariableColor(el.iconColor) : '#777777';
                     const fontSize = `${parseFloat(el.fontSize || '0.035') * 100}cqh`;
                     
                     let fontFamily = 'sans-serif';
-                    if (el.fontPath && this.fonts[el.fontPath.toLowerCase()]) {
-                        fontFamily = `'${this.fonts[el.fontPath.toLowerCase()].name}', monospace`;
-                    }
+                    if (el.fontPath && this.fonts[el.fontPath.toLowerCase()]) fontFamily = `'${this.fonts[el.fontPath.toLowerCase()].name}', monospace`;
                     
                     cont.innerHTML = `
                         <div style="display:flex; align-items:center; gap:5px;"><div style="width:20px; height:20px; border-radius:50%; background:${iconColor};"></div><span style="color:${textColor}; font-size:${fontSize}; font-family:${fontFamily};">SELECT</span></div>
@@ -771,26 +709,13 @@
                 }
 
                 if (el.tag === 'image' || el.tag === 'video') {
-                    let mediaType = 'img';
-                    if (el.tag === 'video') {
-                        mediaType = 'video';
-                    }
-                    
-                    const media = document.createElement(mediaType);
-                    
-                    if (el.tag === 'video') { 
-                        media.autoplay = true; 
-                        media.loop = true; 
-                        media.muted = true; 
-                    }
+                    const media = document.createElement(el.tag === 'video' ? 'video' : 'img');
+                    if (el.tag === 'video') { media.autoplay = true; media.loop = true; media.muted = true; }
                     
                     media.className = 'es-content-media';
                     media.style.objectFit = (w > 0 || h > 0) ? 'fill' : 'contain';
                     
-                    if (el.tile === 'true') {
-                        media.style.objectFit = 'none';
-                        media.style.objectPosition = 'top left';
-                    }
+                    if (el.tile === 'true') { media.style.objectFit = 'none'; media.style.objectPosition = 'top left'; }
                     
                     if (this.images[el.id]) {
                         media.src = this.images[el.id].url;
@@ -811,12 +736,7 @@
                 else if (el.tag === 'text' || el.tag === 'datetime') {
                     const txt = document.createElement('div');
                     txt.className = 'es-content-txt';
-                    
-                    if (el.tag === 'datetime') {
-                        txt.innerText = "12/31/2026";
-                    } else {
-                        txt.innerText = el.text;
-                    }
+                    txt.innerText = el.tag === 'datetime' ? "12/31/2026" : el.text;
                     
                     txt.style.color = this.parseVariableColor(el.color);
                     txt.style.textAlign = el.alignment || 'left';
@@ -831,16 +751,15 @@
                             txt.style.fontFamily = `'${this.fonts[lookupPath].name}', monospace`;
                         } else {
                             const autoName = `auto_${lookupPath.replace(/[^a-zA-Z0-9]/g, '')}`;
-                            if (!this.autoFonts[lookupPath]) {
-                                this.autoFonts[lookupPath] = autoName;
+                            if (!document.getElementById(`style_${autoName}`)) {
                                 const style = document.createElement('style');
+                                style.id = `style_${autoName}`;
                                 style.innerHTML = `@font-face { font-family: '${autoName}'; src: url('${el.fontPath}'); }`;
                                 document.head.appendChild(style);
                             }
                             txt.style.fontFamily = `'${autoName}', monospace`;
                         }
                     }
-
                     cont.appendChild(txt);
                 }
                 
@@ -849,81 +768,49 @@
         },
 
         processRawXML: function(raw) {
-            if (!raw.trim()) {
-                alert("No XML found to parse.");
-                return;
-            }
+            if (!raw.trim()) { alert("No XML found to parse."); return; }
             
-            let parts = raw.split('\x3C!--');
-            raw = parts[0] + parts.slice(1).map(p => {
-                let end = p.indexOf('--\x3E');
-                if (end !== -1) {
-                    return p.substring(end + 3);
-                } else {
-                    return p;
-                }
-            }).join('');
+            // Bulletproof regexes designed to hide HTML entities from the browser's aggressive parser
+            const xmlRe = new RegExp("<\\?xml[^>]*\\?>", "gi");
+            const commentRe = new RegExp("<" + "!--[\\s\\S]*?--" + ">", "g");
+            const entRe = new RegExp("&(?!(amp|lt|gt|quot|apos);)", "g");
             
-            raw = raw.replace(new RegExp("&(?!amp;|lt;|gt;|quot;|apos;)", "g"), "&amp;");
+            raw = raw.replace(xmlRe, "");
+            raw = raw.replace(commentRe, "");
+            raw = raw.replace(entRe, "&" + "amp;");
             
             try {
                 const doc = new DOMParser().parseFromString(`<root>${raw}</root>`, "text/xml");
-                
-                const parserErr = doc.querySelector("parsererror");
-                if (parserErr) {
-                    const errText = parserErr.textContent.split('\n')[0];
-                    throw new Error("Strict XML Syntax Error found: " + errText);
-                }
+                if (doc.querySelector("parsererror")) throw new Error(doc.querySelector("parsererror").textContent.split('\n')[0]);
                 
                 const viewNodes = doc.querySelectorAll('view');
-                if (viewNodes.length === 0) {
-                    throw new Error("No <view> tags found in the XML.");
-                }
+                if (viewNodes.length === 0) throw new Error("No <view> tags found in the XML.");
+
+                const formatNode = doc.querySelector('formatVersion');
+                if (formatNode) this.formatVersion = formatNode.textContent.trim();
+                else this.formatVersion = '4';
 
                 const vars = doc.querySelector('variables');
-                if (vars) {
-                    Array.from(vars.children).forEach(v => {
-                        this.variables[v.tagName] = v.textContent.trim();
-                    });
-                }
+                if (vars) { Array.from(vars.children).forEach(v => { this.variables[v.tagName] = v.textContent.trim(); }); }
 
                 this.views.forEach(v => {
-                    this.data[v].forEach(el => {
-                        el.visible = false;
-                    });
-                    this.data[v] = this.data[v].filter(el => {
-                        return !el.extra;
-                    });
+                    this.data[v].forEach(el => el.visible = false);
+                    this.data[v] = this.data[v].filter(el => !el.extra);
                 });
 
                 viewNodes.forEach(viewNode => {
-                    const viewNamesStr = viewNode.getAttribute('name');
-                    const viewTargets = viewNamesStr.split(',').map(s => s.trim());
-                    
+                    const viewTargets = viewNode.getAttribute('name').split(',').map(s => s.trim());
                     viewTargets.forEach(viewTarget => {
                         if (this.views.includes(viewTarget)) {
                             Array.from(viewNode.children).forEach(child => {
-                                if (!child.tagName || !child.getAttribute('name')) {
-                                    return;
-                                }
-                                
+                                if (!child.tagName || !child.getAttribute('name')) return;
                                 const schema = ES_SCHEMA[child.tagName];
                                 if (!schema) return; 
                                 
-                                const childNamesStr = child.getAttribute('name');
-                                const childNames = childNamesStr.split(',').map(n => n.trim());
-                                
-                                childNames.forEach(name => {
-                                    let targetEl = this.data[viewTarget].find(e => {
-                                        return e.name === name;
-                                    });
-                                    
+                                child.getAttribute('name').split(',').map(n => n.trim()).forEach(name => {
+                                    let targetEl = this.data[viewTarget].find(e => e.name === name);
                                     if (!targetEl) {
-                                        let isExtra = false;
-                                        if (child.getAttribute('extra') === 'true') {
-                                            isExtra = true;
-                                        }
-                                        targetEl = this.createElement(child.tagName, name, isExtra, true);
+                                        targetEl = this.createElement(child.tagName, name, child.getAttribute('extra') === 'true', true);
                                         this.data[viewTarget].push(targetEl);
                                     }
                                     
@@ -934,9 +821,7 @@
                                         if (node) {
                                             if (ARRAY_PROPS.includes(prop)) {
                                                 const vals = node.textContent.trim().split(/\s+/);
-                                                const val0 = vals[0] ? vals[0] : '0';
-                                                const val1 = vals[1] ? vals[1] : '0';
-                                                targetEl[prop] = [val0, val1];
+                                                targetEl[prop] = [vals[0] || '0', vals[1] || '0'];
                                             } else {
                                                 targetEl[prop] = node.textContent.trim();
                                             }
@@ -948,29 +833,22 @@
                     });
                 });
                 
-                alert("XML File Successfully Parsed with Strict Schema!");
-                
-                const firstViewNames = viewNodes[0].getAttribute('name').split(',');
-                const firstFound = firstViewNames[0].trim();
-                
+                const firstFound = viewNodes[0].getAttribute('name').split(',')[0].trim();
                 if (this.views.includes(firstFound)) {
                     this.switchView(firstFound);
+                    this.showToast(`Import Successful! Switched to ${firstFound} view.`);
                 } else {
                     this.renderControls();
+                    this.showToast("Import Successful! (Current View Maintained)");
                 }
                 
-            } catch (e) { 
-                alert("XML Parse Error: \n\n" + e.message + "\n\nPlease check your XML for syntax typos."); 
-                console.error(e);
-            }
+            } catch (e) { alert("XML Parse Error: \n\n" + e.message + "\n\nPlease check your XML for syntax typos."); }
         },
 
-        // THE DEEP COMPILER ENGINE
         compileXML: function(viewsToCompile) {
             let out = "";
             const ExportData = {};
             
-            // 1. Snapshot all valid properties across requested views
             viewsToCompile.forEach(v => {
                 ExportData[v] = {};
                 this.data[v].forEach(el => {
@@ -979,51 +857,46 @@
                     if (!schema) return;
                     
                     let props = {};
+                    let isGrave = false;
                     
-                    // Pre-compress graveyard coordinates
                     if (parseFloat(el.pos[0]) >= 1 || parseFloat(el.pos[1]) >= 1) {
                         props = { pos: '2 2' };
+                        isGrave = true;
                     } else {
                         schema.forEach(prop => {
                             if (ARRAY_PROPS.includes(prop)) {
                                 const v0 = parseFloat(el[prop][0]);
                                 const v1 = parseFloat(el[prop][1]);
-                                if (prop === 'pos' || v0 !== 0 || v1 !== 0) {
-                                    props[prop] = `${el[prop][0]} ${el[prop][1]}`;
-                                }
+                                if (prop === 'pos' || v0 !== 0 || v1 !== 0) props[prop] = `${el[prop][0]} ${el[prop][1]}`;
                             } else {
-                                if (el[prop] !== undefined && el[prop] !== '') {
-                                    props[prop] = el[prop];
-                                }
+                                if (el[prop] !== undefined && el[prop] !== '') props[prop] = el[prop];
                             }
                         });
                     }
                     
                     if (Object.keys(props).length > 0) {
-                        ExportData[v][el.name] = { tag: el.tag, props: props, extra: el.extra };
+                        ExportData[v][el.name] = { tag: el.tag, props: props, extra: el.extra, isGrave: isGrave };
                     }
                 });
             });
 
             const OutputBlocks = {}; 
-            const addBlock = (viewStr, tag, names, props, extra) => {
+            const addBlock = (viewStr, tag, names, props, extra, isGrave) => {
                 if (!OutputBlocks[viewStr]) OutputBlocks[viewStr] = [];
-                OutputBlocks[viewStr].push({ tag, names, props, extra });
+                OutputBlocks[viewStr].push({ tag, names, props, extra, isGrave });
             };
 
-            // 2. Extract Shared Styling Clusters Across Views
             const StyleMap = {}; 
             viewsToCompile.forEach(v => {
                 for (const name in ExportData[v]) {
                     const el = ExportData[v][name];
+                    if (el.isGrave) continue;
+
                     let gProps = {};
                     let hasGProps = false;
                     
                     GROUPABLE_PROPS.forEach(gp => {
-                        if (el.props[gp] !== undefined) {
-                            gProps[gp] = el.props[gp];
-                            hasGProps = true;
-                        }
+                        if (el.props[gp] !== undefined) { gProps[gp] = el.props[gp]; hasGProps = true; }
                     });
                     
                     if (hasGProps) {
@@ -1050,24 +923,15 @@
                         const names = viewComboMap[viewStr].sort();
                         const views = viewStr.split(', ');
                         
-                        // Extract if multiple elements or multiple views share this exact style signature
                         if (names.length > 1 || views.length > 1) {
                             const props = JSON.parse(json);
-                            addBlock(viewStr, tag, names, props, false);
-                            
-                            views.forEach(v => {
-                                names.forEach(n => {
-                                    for (const p in props) {
-                                        delete ExportData[v][n].props[p];
-                                    }
-                                });
-                            });
+                            addBlock(viewStr, tag, names, props, false, false);
+                            views.forEach(v => { names.forEach(n => { for (const p in props) delete ExportData[v][n].props[p]; }); });
                         }
                     }
                 }
             }
 
-            // 3. Extract Remaining Identical Element Properties (Coordinates, Paths, etc)
             const RemainingMap = {}; 
             viewsToCompile.forEach(v => {
                 for (const name in ExportData[v]) {
@@ -1078,7 +942,7 @@
                     if (!RemainingMap[el.tag]) RemainingMap[el.tag] = {};
                     if (!RemainingMap[el.tag][json]) RemainingMap[el.tag][json] = {};
                     if (!RemainingMap[el.tag][json][name]) RemainingMap[el.tag][json][name] = new Set();
-                    RemainingMap[el.tag][json][name].add(v);
+                    RemainingMap[el.tag][json][name].add({ v: v, isGrave: el.isGrave });
                 }
             });
 
@@ -1086,30 +950,25 @@
                 for (const json in RemainingMap[tag]) {
                     const viewComboMap = {};
                     for (const name in RemainingMap[tag][json]) {
-                        const views = Array.from(RemainingMap[tag][json][name]).sort();
+                        const nodeSet = Array.from(RemainingMap[tag][json][name]);
+                        const views = nodeSet.map(x => x.v).sort();
                         const viewStr = views.join(', ');
-                        if (!viewComboMap[viewStr]) viewComboMap[viewStr] = [];
-                        viewComboMap[viewStr].push(name);
+                        if (!viewComboMap[viewStr]) viewComboMap[viewStr] = { names: [], isGrave: nodeSet[0].isGrave };
+                        viewComboMap[viewStr].names.push(name);
                     }
 
                     for (const viewStr in viewComboMap) {
-                        const names = viewComboMap[viewStr].sort();
+                        const names = viewComboMap[viewStr].names.sort();
                         const views = viewStr.split(', ');
                         const props = JSON.parse(json);
                         const isExtra = names.some(n => ExportData[views[0]][n].extra);
                         
-                        addBlock(viewStr, tag, names, props, isExtra);
-                        
-                        views.forEach(v => {
-                            names.forEach(n => {
-                                delete ExportData[v][n]; 
-                            });
-                        });
+                        addBlock(viewStr, tag, names, props, isExtra, viewComboMap[viewStr].isGrave);
+                        views.forEach(v => { names.forEach(n => { delete ExportData[v][n]; }); });
                     }
                 }
             }
 
-            // 4. Assemble the Output Blocks
             const viewCombos = Object.keys(OutputBlocks).sort((a, b) => {
                 const countA = a.split(',').length;
                 const countB = b.split(',').length;
@@ -1123,14 +982,11 @@
                 const blocks = OutputBlocks[viewStr].sort((a, b) => {
                     const aIsStyle = Object.keys(a.props).some(p => GROUPABLE_PROPS.includes(p)) && !Object.keys(a.props).includes('pos');
                     const bIsStyle = Object.keys(b.props).some(p => GROUPABLE_PROPS.includes(p)) && !Object.keys(b.props).includes('pos');
-                    const aIsGrave = a.props.pos === '2 2';
-                    const bIsGrave = b.props.pos === '2 2';
                     
-                    if (aIsGrave && !bIsGrave) return 1;
-                    if (!aIsGrave && bIsGrave) return -1;
+                    if (a.isGrave && !b.isGrave) return 1;
+                    if (!a.isGrave && b.isGrave) return -1;
                     if (aIsStyle && !bIsStyle) return -1;
                     if (!aIsStyle && bIsStyle) return 1;
-                    
                     return a.tag.localeCompare(b.tag);
                 });
 
@@ -1138,11 +994,10 @@
 
                 blocks.forEach(block => {
                     const isStyle = Object.keys(block.props).some(p => GROUPABLE_PROPS.includes(p)) && !Object.keys(block.props).includes('pos');
-                    const isGrave = block.props.pos === '2 2' && Object.keys(block.props).length === 1;
                     
                     let sectionLabel = 'INDIVIDUAL ELEMENTS / ASSETS';
                     if (isStyle) sectionLabel = 'SHARED PROPERTIES';
-                    if (isGrave) sectionLabel = 'OFF-SCREEN ELEMENTS';
+                    if (block.isGrave) sectionLabel = 'OFF-SCREEN ELEMENTS';
                     
                     if (sectionLabel !== currentSection) {
                         out += `        \n`;
@@ -1169,17 +1024,15 @@
             
             document.getElementById('raw-input-area').style.display = 'block';
             document.getElementById('xml-io').value = out;
-            alert("Current View XML has been exported to the text box!");
+            this.showToast("View Extracted to Text Box!");
         },
 
         exportFullThemeXML: function() {
-            let fullOut = `\x3C!-- Compiled by ES Theme Studio v3.2 --\x3E\n<theme>\n    <formatVersion>4</formatVersion>\n\n`;
+            let fullOut = `\x3C!-- Compiled by ES Theme Studio v3.4 --\x3E\n<theme>\n    <formatVersion>${this.formatVersion}</formatVersion>\n\n`;
             
             if (Object.keys(this.variables).length > 0) {
                 fullOut += `    <variables>\n`;
-                for (const [k, v] of Object.entries(this.variables)) {
-                    fullOut += `        <${k}>${v}</${k}>\n`;
-                }
+                for (const [k, v] of Object.entries(this.variables)) { fullOut += `        <${k}>${v}</${k}>\n`; }
                 fullOut += `    </variables>\n\n`;
             }
 
@@ -1195,12 +1048,11 @@
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
+            this.showToast("Theme Compiled & Downloaded!");
         }
     };
     
-    window.onload = function() {
-        app.init();
-    };
+    window.onload = function() { app.init(); };
 </script>
 </body>
 </html>
