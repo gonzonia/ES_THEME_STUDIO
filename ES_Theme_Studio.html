@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>ES Theme Studio v3.42 (Deep Compiler)</title>
+    <title>ES Theme Studio v3.44 (Deep Compiler)</title>
     <style>
         :root { --bg: #1a0b2e; --panel: #111; --border: #FF00FF; --text: #00FFFF; }
         body { margin: 0; padding: 0; background: var(--bg); color: #fff; font-family: 'Segoe UI', Tahoma, sans-serif; display: flex; height: 100vh; overflow: hidden; }
@@ -73,7 +73,7 @@
 <button id="sidebar-toggle" onclick="app.toggleSidebar()" title="Toggle Sidebar">&#9664;</button>
 
 <div id="sidebar">
-    <div class="header"><h2>ES Theme Studio v3.42</h2></div>
+    <div class="header"><h2>ES Theme Studio v3.44</h2></div>
     <div class="actions" style="border-bottom: 1px solid #333; border-top: none;">
         
         <div id="drop-zone" onclick="document.getElementById('file-input').click()">
@@ -891,7 +891,12 @@
             
             this.data[this.currentView].forEach(el => {
                 if (!el.visible || el.tag === 'gridtile') {
-                    return; 
+                    return;
+                }
+
+                // On system view, logo and logoText are rendered inside the carousel — skip standalone
+                if (this.currentView === 'system' && (el.name === 'logo' || el.name === 'logoText')) {
+                    return;
                 }
 
                 const cont = document.createElement('div');
@@ -1174,28 +1179,23 @@
                         `;
 
                         // Try to show logo image, fall back to logoText
+                        const rawLogoPath = logoEl ? logoEl.path : null;
+                        const resolvedLogoPath = rawLogoPath ? this.resolvePathVars(rawLogoPath) : null;
                         const logoImgSrc = logoEl && this.images[logoEl.id] ? this.images[logoEl.id].url
-                            : (logoEl && logoEl.path && !logoEl.path.includes('\${') ? this.resolvePathVars(logoEl.path) : null);
+                            : (resolvedLogoPath && !resolvedLogoPath.includes('${') ? resolvedLogoPath : null);
 
                         if (logoImgSrc) {
                             const img = document.createElement('img');
                             img.src = logoImgSrc;
                             img.style.cssText = 'max-width:100%; max-height:100%; object-fit:contain; pointer-events:none;';
-                            if (logoEl && logoEl.color) {
-                                img.style.filter = `opacity(1)`;  // color tinting not trivially possible in CSS
-                            }
+                            img.onerror = () => {
+                                slot.removeChild(img);
+                                const ltxt = this.makeLogoText(logoTextEl);
+                                slot.appendChild(ltxt);
+                            };
                             slot.appendChild(img);
                         } else {
-                            // Fallback to logoText
-                            const ltxt = document.createElement('div');
-                            const ltColor = logoTextEl && logoTextEl.color ? this.parseVariableColor(logoTextEl.color) : '#000';
-                            ltxt.style.cssText = `color:${ltColor}; font-size:${parseFloat(logoTextEl && logoTextEl.fontSize || '0.05') * 100}cqh; text-align:center; padding:4px; pointer-events:none; overflow:hidden;`;
-                            if (logoTextEl && logoTextEl.forceUppercase === 'true') ltxt.style.textTransform = 'uppercase';
-                            if (logoTextEl && logoTextEl.fontPath && this.fonts[logoTextEl.fontPath.toLowerCase()]) {
-                                ltxt.style.fontFamily = `'${this.fonts[logoTextEl.fontPath.toLowerCase()].name}', sans-serif`;
-                            }
-                            ltxt.innerText = logoTextEl && logoTextEl.text ? logoTextEl.text : '[System Name]';
-                            slot.appendChild(ltxt);
+                            slot.appendChild(this.makeLogoText(logoTextEl));
                         }
 
                         cont.appendChild(slot);
@@ -1261,6 +1261,18 @@
                 
                 monitor.appendChild(cont);
             });
+        },
+
+        makeLogoText: function(logoTextEl) {
+            const ltxt = document.createElement('div');
+            const ltColor = logoTextEl && logoTextEl.color ? this.parseVariableColor(logoTextEl.color) : '#000';
+            ltxt.style.cssText = `color:${ltColor}; font-size:${parseFloat(logoTextEl && logoTextEl.fontSize || '0.05') * 100}cqh; text-align:center; padding:4px; pointer-events:none; overflow:hidden;`;
+            if (logoTextEl && logoTextEl.forceUppercase === 'true') ltxt.style.textTransform = 'uppercase';
+            if (logoTextEl && logoTextEl.fontPath && this.fonts[logoTextEl.fontPath.toLowerCase()]) {
+                ltxt.style.fontFamily = `'${this.fonts[logoTextEl.fontPath.toLowerCase()].name}', sans-serif`;
+            }
+            ltxt.innerText = logoTextEl && logoTextEl.text ? logoTextEl.text : '[System Name]';
+            return ltxt;
         },
 
         showWarning: function(msg) {
@@ -1629,7 +1641,7 @@
         },
 
         exportFullThemeXML: function() {
-            let fullOut = `\x3C!-- Compiled by ES Theme Studio v3.42 --\x3E\n<theme>\n    <formatVersion>4</formatVersion>\n\n`;
+            let fullOut = `\x3C!-- Compiled by ES Theme Studio v3.44 --\x3E\n<theme>\n    <formatVersion>4</formatVersion>\n\n`;
             
             if (Object.keys(this.variables).length > 0) {
                 fullOut += `    <variables>\n`;
